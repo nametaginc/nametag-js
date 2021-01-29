@@ -16,7 +16,7 @@
     "prepublishOnly": "npm run build",
     "build": "tsc --declaration",
     "lint": "eslint --ext js,ts .",
-    "fmt": "prettier --write ."
+    "fmt": "prettier --write . && eslint --ext ts . --fix"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
