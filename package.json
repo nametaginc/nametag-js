@@ -1,0 +1,33 @@
+{
+  "name": "nametag",
+  "version": "1.2.9",
+  "description": "Authorization client for Nametag (https://getnametag.com)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nametaginc/nametag-js"
+  },
+  "author": "Nametag <help@nametag.co>",
+  "license": "BSD-2-Clause",
+  "homepage": "https://github.com/nametaginc/nametag-js",
+  "bugs": {
+    "url": "https://github.com/nametaginc/nametag-js/issues"
+  },
+  "scripts": {
+    "build": "tsc --declaration",
+    "lint": "eslint --ext js,ts .",
+    "fmt": "prettier --write ."
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^4.14.1",
+    "@typescript-eslint/parser": "^4.14.1",
+    "eslint": "^7.12.1",
+    "eslint-config-standard": "^16.0.2",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "prettier": "^2.2.1",
+    "typescript": "^4.1.3"
+  }
+}
