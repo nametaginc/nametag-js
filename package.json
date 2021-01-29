@@ -1,10 +1,10 @@
 {
-  "name": "nametag",
+  "name": "@nametag/browser",
   "version": "1.2.9",
   "description": "Authorization client for Nametag (https://getnametag.com)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nametaginc/nametag-js"
+    "url": "git+https://github.com/nametaginc/nametag-js.git"
   },
   "author": "Nametag <help@nametag.co>",
   "license": "BSD-2-Clause",
@@ -13,6 +13,7 @@
     "url": "https://github.com/nametaginc/nametag-js/issues"
   },
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsc --declaration",
     "lint": "eslint --ext js,ts .",
     "fmt": "prettier --write ."

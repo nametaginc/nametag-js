@@ -9,7 +9,7 @@ This is the authorization client for browser-side OAuth 2.0 sign in with Nametag
 3. Initialize the client
 
 ```typescript
-import { Auth } from "nametag";
+import { Auth } from "@nametag/browser";
 
 var nametag = Auth({ ClientID: "YOUR_CLIENT_ID" });
 ```
