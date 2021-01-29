@@ -153,7 +153,7 @@ export class Auth {
   }
 
   async GetProperties(scopes: string[]): Promise<Properties | null> {
-    const token = this.localStorage.getItem(this.tokenLocalStorageKey);
+    const token = this.Token();
     if (!token) {
       return null;
     }
@@ -163,7 +163,7 @@ export class Auth {
         "/people/me/properties/" +
         scopes.join(",") +
         "?token=" +
-        encodeURI(token)
+        encodeURI(token.idToken)
     );
     if (resp.status >= 400) {
       return null;
