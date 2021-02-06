@@ -195,9 +195,12 @@ class Properties {
   static fromData (data: any): Properties {
     const rv = new Properties()
     rv.subject = data.sub
-    for (const propData of data.properties) {
-      const prop = Property.fromData(propData)
-      rv.properties.push(prop)
+    rv.properties = []
+    if (data.properties) {
+      for (const propData of data.properties) {
+        const prop = Property.fromData(propData)
+        rv.properties.push(prop)
+      }
     }
     return rv
   }
