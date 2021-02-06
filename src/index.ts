@@ -22,6 +22,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 import { PKCE } from './pkce'
+import { IStorage } from './storage'
 
 export interface Options {
   // ClientID is the OAuth 2.0 client ID obtained from the Nametag Developer
@@ -51,8 +52,8 @@ export class Auth {
   ClientID: string;
   CallbackURL: string = window.location.origin + '/callback';
 
-  sessionStorage = window.sessionStorage;
-  localStorage = window.localStorage;
+  sessionStorage: IStorage = window.sessionStorage;
+  localStorage: IStorage = window.localStorage;
   server = 'https://nametag.co';
   codeVerifierKey = '__nametag_code_verifier';
   tokenLocalStorageKey = '__nametag_id_token';
