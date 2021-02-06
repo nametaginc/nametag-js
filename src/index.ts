@@ -94,6 +94,7 @@ export class Auth {
     const codeVerifier = this.sessionStorage.getItem(this.codeVerifierKey)
     if (codeVerifier) {
       body.set('code_verifier', codeVerifier)
+      this.sessionStorage.removeItem(this.codeVerifierKey)
     }
 
     const resp = await fetch(this.server + '/token', {
