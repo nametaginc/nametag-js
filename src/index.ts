@@ -26,7 +26,7 @@ import { IStorage } from './storage'
 
 export interface Options {
   // ClientID is the OAuth 2.0 client ID obtained from the Nametag Developer
-  // interface at https://nametag.co/manage
+  // interface at https://console.nametag.co
   ClientID: string;
 
   // CallbackURL is the URL where the browser will be redirected when authentication
@@ -52,7 +52,6 @@ export class Auth {
   ClientID: string;
   CallbackURL: string = window.location.origin + '/callback';
 
-  sessionStorage: IStorage = window.sessionStorage;
   localStorage: IStorage = window.localStorage;
   server = 'https://nametag.co';
   codeVerifierKey = '__nametag_code_verifier';
@@ -75,7 +74,7 @@ export class Auth {
     q.set('redirect_uri', this.CallbackURL)
 
     const pkce = await PKCE.New()
-    this.sessionStorage.setItem(this.codeVerifierKey, pkce.verifier)
+    this.localStorage.setItem(this.codeVerifierKey, pkce.verifier)
 
     q.set('code_challenge', pkce.challenge)
     q.set('code_challenge_method', pkce.challengeMethod)
@@ -91,10 +90,10 @@ export class Auth {
     body.set('code', code)
     body.set('redirect_uri', this.CallbackURL)
 
-    const codeVerifier = this.sessionStorage.getItem(this.codeVerifierKey)
+    const codeVerifier = this.localStorage.getItem(this.codeVerifierKey)
     if (codeVerifier) {
       body.set('code_verifier', codeVerifier)
-      this.sessionStorage.removeItem(this.codeVerifierKey)
+      this.localStorage.removeItem(this.codeVerifierKey)
     }
 
     const resp = await fetch(this.server + '/token', {
