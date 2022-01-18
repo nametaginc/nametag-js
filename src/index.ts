@@ -65,7 +65,7 @@ export class Auth {
   }
 
   // AuthorizeURL returns an
-  async AuthorizeURL (scopes: string[], state: string): Promise<string> {
+  async AuthorizeURL (scopes: string[], state: string, qrcode: boolean): Promise<string> {
     const q = new URLSearchParams()
     q.set('client_id', this.ClientID)
     q.set('scope', scopes.join(' '))
@@ -79,7 +79,9 @@ export class Auth {
     q.set('code_challenge', pkce.challenge)
     q.set('code_challenge_method', pkce.challengeMethod)
 
-    const authorizeURL = this.server + '/authorize?' + q.toString()
+    endpoint = qrcode?'/authorize/qr?':'/authorize?'
+
+    const authorizeURL = this.server + endpoint + q.toString()
     return authorizeURL
   }
 

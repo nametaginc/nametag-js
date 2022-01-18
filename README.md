@@ -30,8 +30,11 @@ const onLoginButtonClick = async () => {
   const scopes = ["nt:name", "nt:email"];
   const state = window.location.pathname + window.location.search; // or whatever the next URL is
   const url = await nametag.AuthorizeURL(scopes, state);
+  const qrcode = await nametag.AuthorizeURL(scopes, state, true) // 'true' means send QR code
   window.location.assign(url);
 };
+<img alt="Say hellow with Nametag" src={nametag.server + '/button.svg'}/>
+<img alt="Scan to sigin in with ID" src={qrurl}/>
 ```
 
 6. On page load, handle the authentication callback:
