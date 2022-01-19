@@ -34,6 +34,10 @@ export interface Options {
   CallbackURL?: string;
 }
 
+export interface AuthorizeOptions {
+  QRCode: boolean;
+}
+
 /* eslint-disable camelcase */
 export interface Token {
   id_token: string
@@ -65,7 +69,7 @@ export class Auth {
   }
 
   // AuthorizeURL returns an
-  async AuthorizeURL (scopes: string[], state: string, qrcode: boolean): Promise<string> {
+  async AuthorizeURL (scopes: string[], state: string, authopts: AuthorizeOptions): Promise<string> {
     const q = new URLSearchParams()
     q.set('client_id', this.ClientID)
     q.set('scope', scopes.join(' '))
@@ -79,7 +83,7 @@ export class Auth {
     q.set('code_challenge', pkce.challenge)
     q.set('code_challenge_method', pkce.challengeMethod)
 
-    endpoint = qrcode?'/authorize/qr?':'/authorize?'
+    endpoint = authopts.QRCode?'/authorize/qr?':'/authorize?'
 
     const authorizeURL = this.server + endpoint + q.toString()
     return authorizeURL
