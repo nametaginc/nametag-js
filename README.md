@@ -26,15 +26,20 @@ if (!auth.Token()) {
 
 ```typescript
 // click handler for the "Login with Nametag" button
+interface AuthorizeOptions {
+  qrcode: boolean
+}
+const opts AuthorizeOptions
+opts.qrcode = false
 const onLoginButtonClick = async () => {
   const scopes = ["nt:name", "nt:email"];
   const state = window.location.pathname + window.location.search; // or whatever the next URL is
-  const url = await nametag.AuthorizeURL(scopes, state);
-  const qrcode = await nametag.AuthorizeURL(scopes, state, true) // 'true' means send QR code
+  const url = await nametag.AuthorizeURL(scopes, state, opts);
+  opts.qrcode = true
+  const qrcode = await nametag.AuthorizeURL(scopes, state, opts) 
   window.location.assign(url);
 };
-<img alt="Say hellow with Nametag" src={nametag.server + '/button.svg'}/>
-<img alt="Scan to sigin in with ID" src={qrurl}/>
+// add image button and qr code here
 ```
 
 6. On page load, handle the authentication callback:
