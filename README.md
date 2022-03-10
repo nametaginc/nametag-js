@@ -2,7 +2,7 @@
 
 This is the authorization client for browser-side OAuth 2.0 sign in with Nametag. Learn more about Nametag at https://getnametag.com.
 
-1. Sign up for a Nametag developer account at https://getnametag.com
+1. Sign up for a Nametag developer account at https://console.nametag.co
 
 2. Create an app. Make sure to set up a callback URL into your app. Obtain your client ID (you don't need the client secret).
 
@@ -26,12 +26,20 @@ if (!auth.Token()) {
 
 ```typescript
 // click handler for the "Login with Nametag" button
+interface AuthorizeOptions {
+  qrcode: boolean
+}
+const opts AuthorizeOptions
+opts.qrcode = false
 const onLoginButtonClick = async () => {
-  const scopes = ["nt:name", "nt:email"];
+  const scopes = ["nt:name", "nt:email"]; // you must define these scopes for your app in the Nametag console.
   const state = window.location.pathname + window.location.search; // or whatever the next URL is
-  const url = await nametag.AuthorizeURL(scopes, state);
+  const url = await nametag.AuthorizeURL(scopes, state, opts);
+  opts.qrcode = true
+  const qrcode = await nametag.AuthorizeURL(scopes, state, opts) 
   window.location.assign(url);
 };
+// add image button and qr code here
 ```
 
 6. On page load, handle the authentication callback:

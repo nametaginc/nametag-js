@@ -21,186 +21,317 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-import { PKCE } from './pkce'
-import { IStorage } from './storage'
+import { PKCE } from "./pkce";
+import { IStorage } from "./storage";
+import { DesktopSigninButton, isMobile, MobileSigninButton } from "./button";
 
 export interface Options {
-  // ClientID is the OAuth 2.0 client ID obtained from the Nametag Developer
+  // client_id is the OAuth 2.0 client ID obtained from the Nametag Developer
   // interface at https://console.nametag.co
-  ClientID: string;
+  client_id: string;
 
-  // CallbackURL is the URL where the browser will be redirected when authentication
+  // redirect_uri is the URL where the browser will be redirected when authentication
   // completes. You'll need to provide a handler for this URL that invokes HandleCallback()
-  CallbackURL?: string;
+  redirect_uri: string;
+
+  // The OAuth 2.0 scopes you are requesting for this authorization. Scopes must a subset of those defined for your app
+  // in the Nametag console.
+  scopes: Array<string>;
+
+  // Arbitrary data that you define for your application. This value is passed to your CallbackURL upon completion of
+  // the authorzation flow.
+  state: string;
+
+  // Enable PKCE mode which is used for single page applications (default: true)
+  pkce?: boolean;
+
+  // An interface that is used to handle token storage. The default is window.localStorage.
+  localStorage?: IStorage;
+
+  // The Nametag server to use. The default is https://nametag.co, which should be fine for nearly all cases.
+  server?: string;
+}
+
+interface internalAuthorizeOptions {
+  iframe?: boolean;
 }
 
 /* eslint-disable camelcase */
 export interface Token {
-  id_token: string
-  access_token: string
-  refresh_token: string
-  scope: string
-  expires_in: number
-  token_type: string
-  subject: string
-  firebase_custom_token?: string
+  id_token: string;
+  access_token: string;
+  refresh_token: string;
+  scope: string;
+  expires_in: number;
+  token_type: string;
+  subject: string;
+  firebase_custom_token?: string;
 }
 /* eslint-enable camelcase */
 
+export type SigninButtonVariant = "blue" | "black" | "white";
+export type SigninButtonIconPosition = "left" | "center";
+export type SigninButtonPopupVariant = "concise" | "verbose";
+
+export interface AuthorizeButtonOptions {
+  variant?: SigninButtonVariant;
+  iconPosition?: SigninButtonIconPosition;
+  popupVariant?: SigninButtonPopupVariant;
+}
+
 // Auth implements pure client-side authentication for Nametag.
 export class Auth {
-  ClientID: string;
-  CallbackURL: string = window.location.origin + '/callback';
+  private client_id: string;
+  private redirect_uri: string;
+  private scopes?: Array<string>;
+  state: string;
+  private pkce: boolean;
+  private localStorage: IStorage = window.localStorage;
+  public _server: string;
+  private tokenLocalStorageKey = "__nametag_id_token";
 
-  localStorage: IStorage = window.localStorage;
-  server = 'https://nametag.co';
-  codeVerifierKey = '__nametag_code_verifier';
-  tokenLocalStorageKey = '__nametag_id_token';
-
-  constructor (opts: Options) {
-    this.ClientID = opts.ClientID
-    if (opts.CallbackURL) {
-      this.CallbackURL = opts.CallbackURL
+  constructor(opts: Options) {
+    if (window.location.protocol !== "https:") {
+      throw new Error(
+        "nametag: sign in with ID buttons only work when page is https"
+      );
+      return;
     }
+
+    this.client_id = opts.client_id;
+    if (!this.client_id) {
+      throw new Error("nametag: you must supply client_id");
+    }
+
+    this.redirect_uri = opts.redirect_uri;
+    if (!this.redirect_uri) {
+      throw new Error("nametag: must supply redirect_uri");
+    }
+
+    this.scopes = opts.scopes;
+    this.state = opts.state;
+    this.pkce = opts.pkce ?? true;
+    this.localStorage = opts.localStorage ?? window.localStorage;
+    this._server = opts.server || "https://nametag.co";
   }
 
-  // AuthorizeURL returns an
-  async AuthorizeURL (scopes: string[], state: string): Promise<string> {
-    const q = new URLSearchParams()
-    q.set('client_id', this.ClientID)
-    q.set('scope', scopes.join(' '))
-    q.set('response_mode', 'fragment')
-    q.set('state', state)
-    q.set('redirect_uri', this.CallbackURL)
+  async AuthorizeURL(
+    internalOptions?: internalAuthorizeOptions
+  ): Promise<string> {
+    if (!this.scopes || !this.scopes.length) {
+      throw new Error("nametag: you must supply scopes to call AuthorizeURL()");
+    }
 
-    const pkce = await PKCE.New()
-    this.localStorage.setItem(this.codeVerifierKey, pkce.verifier)
+    const q = new URLSearchParams();
+    q.set("client_id", this.client_id);
+    q.set("scope", this.scopes.join(" "));
+    if (!this.state) {
+      this.state = await this.randomState();
+    }
+    q.set("state", this.state);
+    q.set("redirect_uri", this.redirect_uri);
 
-    q.set('code_challenge', pkce.challenge)
-    q.set('code_challenge_method', pkce.challengeMethod)
+    if (this.pkce) {
+      q.set("response_mode", "fragment");
+      const pkce = await PKCE.New();
 
-    const authorizeURL = this.server + '/authorize?' + q.toString()
-    return authorizeURL
+      const codeVerifierKey = await this.codeVerifierKey(this.state);
+      this.localStorage.setItem(codeVerifierKey, pkce.verifier);
+      q.set("code_challenge", pkce.challenge);
+      q.set("code_challenge_method", pkce.challengeMethod);
+    }
+
+    let endpoint = "/authorize";
+    if (internalOptions?.iframe) {
+      endpoint = "/authorize/iframe";
+    }
+
+    const authorizeURL = this._server + endpoint + "?" + q.toString();
+    return authorizeURL;
   }
 
-  async ExchangeCode (code: string): Promise<Token> {
-    const body = new FormData()
-    body.set('grant_type', 'authorization_code')
-    body.set('client_id', this.ClientID)
-    body.set('code', code)
-    body.set('redirect_uri', this.CallbackURL)
+  private async randomState(): Promise<string> {
+    const alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let rv = "";
+    for (let i = 0; i < 20; i++) {
+      rv += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+    }
+    return rv;
+  }
 
-    const codeVerifier = this.localStorage.getItem(this.codeVerifierKey)
+  private async codeVerifierKey(state: string) {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(state)
+    );
+
+    const digestArr = Array.from(new Uint8Array(digest));
+    const digestStr = digestArr
+      .map((byte) => String.fromCharCode(byte))
+      .join("");
+    const digestBase64 = btoa(digestStr);
+
+    return "__nametag_code_verifier_" + digestBase64;
+  }
+
+  private async exchangeCode(code: string): Promise<Token> {
+    const body = new FormData();
+    body.set("grant_type", "authorization_code");
+    body.set("client_id", this.client_id);
+    body.set("code", code);
+    body.set("redirect_uri", this.redirect_uri);
+
+    const codeVerifierKey = await this.codeVerifierKey(this.state);
+    const codeVerifier = this.localStorage.getItem(codeVerifierKey);
     if (codeVerifier) {
-      body.set('code_verifier', codeVerifier)
-      this.localStorage.removeItem(this.codeVerifierKey)
+      body.set("code_verifier", codeVerifier);
+      this.localStorage.removeItem(codeVerifierKey);
     }
 
-    const resp = await fetch(this.server + '/token', {
-      method: 'POST',
-      body: body
-    })
+    const resp = await fetch(this._server + "/token", {
+      method: "POST",
+      body: body,
+    });
     if (resp.status >= 400) {
-      const err = resp.headers.get('X-Error-Message') || (await resp.text())
-      throw new Error('Cannot exchnage code for token: ' + err)
+      const err = resp.headers.get("X-Error-Message") || (await resp.text());
+      throw new Error("nametag: cannot exchange code for token: " + err);
     }
-    return await resp.json() as Token
+    return (await resp.json()) as Token;
   }
 
-  async HandleCallback (): Promise<string | null> {
-    const query = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-    const error = query.get('error')
+  async HandleCallback(): Promise<HandleCallbackResult | null> {
+    if (!this.pkce) {
+      throw new Error(
+        "nametag: HandleCallback should only be called in PKCE mode"
+      );
+    }
+
+    // In PKCE, the response is in the hash rather than the query string, e.g. e.g. "https://example.com/callback#code=1234&state=foobar"
+    //
+    // Note: window.location.hash includes the leading "#", so we have to strip that off before we parse it.
+    const query = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const state = query.get("state");
+    if (!state) {
+      return {};
+    }
+    this.state = state;
+
+    const error = query.get("error");
     if (error) {
-      throw new Error(error)
+      return { error: error };
     }
-    const code = query.get('code')
+    const code = query.get("code");
     if (!code) {
-      throw new Error('Code parameter is missing from fragment')
+      return {};
     }
 
-    const state = query.get('state')
-
-    const token = await this.ExchangeCode(code)
-    this.localStorage.setItem(this.tokenLocalStorageKey, JSON.stringify(token))
-
-    return state
+    const token = await this.exchangeCode(code);
+    this.localStorage.setItem(this.tokenLocalStorageKey, JSON.stringify(token));
+    return { token: token };
   }
 
-  Signout () {
-    this.localStorage.removeItem(this.tokenLocalStorageKey)
+  Signout() {
+    if (!this.pkce) {
+      throw new Error("nametag: Signout should only be called in PKCE mode");
+    }
+    this.localStorage.removeItem(this.tokenLocalStorageKey);
   }
 
-  SignedIn (): boolean {
-    return !!this.Token()
+  SignedIn(): boolean {
+    if (!this.pkce) {
+      throw new Error("nametag: SignedIn should only be called in PKCE mode");
+    }
+    return !!this.Token();
   }
 
-  Token (): Token | null {
-    const tokenStr = this.localStorage.getItem(this.tokenLocalStorageKey)
+  Token(): Token | null {
+    if (!this.pkce) {
+      throw new Error("nametag: Token should only be called in PKCE mode");
+    }
+    const tokenStr = this.localStorage.getItem(this.tokenLocalStorageKey);
     if (!tokenStr) {
-      return null
+      return null;
     }
-    return JSON.parse(tokenStr) as Token
+    return JSON.parse(tokenStr) as Token;
   }
 
-  async GetProperties (scopes: string[]): Promise<Properties | null> {
-    const token = this.Token()
+  async GetProperties(scopes: string[]): Promise<Properties | null> {
+    if (!this.pkce) {
+      throw new Error("nametag: Signout should only be called in PKCE mode");
+    }
+
+    const token = this.Token();
     if (!token) {
-      return null
+      return null;
     }
 
     const resp = await fetch(
-      this.server +
-        '/people/me/properties/' +
-        scopes.join(',') +
-        '?token=' +
+      this._server +
+        "/people/me/properties/" +
+        scopes.join(",") +
+        "?token=" +
         encodeURI(token.id_token)
-    )
+    );
     if (resp.status >= 400) {
-      return null
+      return null;
     }
-    const respBody = await resp.json()
+    const respBody = await resp.json();
 
-    return Properties.fromData(respBody)
+    return Properties.fromData(respBody);
+  }
+
+  AuthorizeButton(element: HTMLElement, options: AuthorizeButtonOptions) {
+    if (isMobile()) {
+      let _ = new MobileSigninButton(this, element, options);
+    } else {
+      let _ = new DesktopSigninButton(this, element, options);
+    }
   }
 }
 
 class Property {
-  scope: string = '';
+  scope: string = "";
   value: any = null;
   exp: Date = new Date(0);
 
-  static fromData (data: any): Property {
-    const rv = new Property()
-    rv.scope = data.scope
-    rv.value = data.value
-    rv.exp = new Date(data.exp)
-    return rv
+  static fromData(data: any): Property {
+    const rv = new Property();
+    rv.scope = data.scope;
+    rv.value = data.value;
+    rv.exp = new Date(data.exp);
+    return rv;
   }
 }
 
 class Properties {
-  subject: string = '';
+  subject: string = "";
   properties: Property[] = [];
 
-  get (scope: string): Property | null {
+  get(scope: string): Property | null {
     for (const prop of this.properties) {
       if (prop.scope === scope) {
-        return prop
+        return prop;
       }
     }
-    return null
+    return null;
   }
 
-  static fromData (data: any): Properties {
-    const rv = new Properties()
-    rv.subject = data.sub
-    rv.properties = []
+  static fromData(data: any): Properties {
+    const rv = new Properties();
+    rv.subject = data.sub;
+    rv.properties = [];
     if (data.properties) {
       for (const propData of data.properties) {
-        const prop = Property.fromData(propData)
-        rv.properties.push(prop)
+        const prop = Property.fromData(propData);
+        rv.properties.push(prop);
       }
     }
-    return rv
+    return rv;
   }
+}
+
+interface HandleCallbackResult {
+  error?: string;
+  token?: Token;
 }
