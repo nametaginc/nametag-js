@@ -1,6 +1,6 @@
 {
   "name": "@nametag/browser",
-  "version": "1.2.13",
+  "version": "1.2.14",
   "description": "Authorization client for Nametag (https://getnametag.com)",
   "repository": {
     "type": "git",
