@@ -8,6 +8,7 @@
 import { PKCE } from "./pkce";
 import { IStorage } from "./storage";
 import { DesktopSigninButton, isMobile, MobileSigninButton } from "./button";
+import { detect } from "detect-browser";
 
 export interface Options {
   // client_id is the OAuth 2.0 client ID obtained from the Nametag Developer
@@ -29,8 +30,8 @@ export interface Options {
   // Enable PKCE mode which is used for single page applications (default: true)
   pkce?: boolean;
 
-  // An interface that is used to handle token storage. The default is window.localStorage.
-  storage?: IStorage;
+  // An interface that is used to handle long-term token storage. The default is window.localStorage.
+  localStorage?: IStorage;
 
   // The Nametag server to use. The default is https://nametag.co, which should be fine for nearly all cases.
   server?: string;
@@ -70,12 +71,17 @@ export class Auth {
   private scopes?: Array<string>;
   state: string;
   private pkce: boolean;
-  private storage: IStorage;
+  private localStorage: () => IStorage;
   public _server: string;
   private tokenLocalStorageKey = "__nametag_id_token";
+  private watches: Array<TokenWatchImpl> = [];
 
   constructor(opts: Options) {
-    if (window.location.protocol !== "https:") {
+    // Nametag requires that your page be hosted via HTTPs (or on localhost)
+    if (
+      window.location.protocol !== "https:" &&
+      window.location.hostname !== "localhost"
+    ) {
       throw new Error(
         "nametag: sign in with ID buttons only work when page is https"
       );
@@ -95,8 +101,14 @@ export class Auth {
     this.scopes = opts.scopes;
     this.state = opts.state;
     this.pkce = opts.pkce ?? true;
-    this.storage = opts.storage ?? window.localStorage;
+    this.localStorage = () => opts.localStorage ?? window.localStorage;
     this._server = opts.server || "https://nametag.co";
+  }
+
+  IsCurrentOriginValid(): boolean {
+    const url = new URL(this.redirect_uri);
+    const redirectURIOrigin = url.origin;
+    return redirectURIOrigin == window.origin;
   }
 
   async AuthorizeURL(
@@ -117,12 +129,47 @@ export class Auth {
 
     if (this.pkce) {
       q.set("response_mode", "fragment");
-      const pkce = await PKCE.New();
+      let pkce: PKCE;
+      let localStorage = this.localStorage();
+      this.vaccumLocalStorage();
 
+      const codeVerifierTTL = 24 * 60 * 60 * 1000;
       const codeVerifierKey = await this.codeVerifierKey(this.state);
-      this.storage.setItem(codeVerifierKey, pkce.verifier);
+      let verifier = localStorage.getItem(codeVerifierKey);
+      if (verifier) {
+        console.debug(`nametag[${this.state}]: restoring stored verifier`);
+        localStorage.setItem(
+          codeVerifierKey + "_expires",
+          (Date.now() + codeVerifierTTL).toString()
+        );
+        pkce = await PKCE.FromStored(verifier);
+      } else {
+        console.debug(`nametag[${this.state}]: generating new PKCE verifier`);
+        pkce = await PKCE.New();
+        localStorage.setItem(codeVerifierKey, pkce.verifier);
+        localStorage.setItem(
+          codeVerifierKey + "_expires",
+          (Date.now() + codeVerifierTTL).toString()
+        );
+      }
       q.set("code_challenge", pkce.challenge);
       q.set("code_challenge_method", pkce.challengeMethod);
+    }
+
+    const browser = detect();
+    switch (browser?.name) {
+      case "chrome": // chrome, android/desktop
+      case "crios": // chrome ios
+        q.set("return", "chrome");
+        break;
+      case "firefox":
+        q.set("return", "firefox");
+        break;
+      case "ios": // safari ios
+      case "safari": // safari desktop
+      default:
+        q.set("return", "https");
+        break;
     }
 
     let endpoint = "/authorize";
@@ -132,6 +179,25 @@ export class Auth {
 
     const authorizeURL = this._server + endpoint + "?" + q.toString();
     return authorizeURL;
+  }
+
+  private vaccumLocalStorage() {
+    const localStorage = this.localStorage();
+
+    var keysToRemove: Array<string> = [];
+    for (var i = 0, len = localStorage.length; i < len; i++) {
+      try {
+        var key = localStorage.key(i)!;
+        var expires = localStorage.getItem(key + "_expires")!;
+        if (Number.parseInt(expires) < Date.now()) {
+          keysToRemove.push(key);
+          keysToRemove.push(key + "_expires");
+        }
+      } catch (e) {
+        // nop
+      }
+    }
+    keysToRemove.map((key) => localStorage.removeItem(key));
   }
 
   private async randomState(): Promise<string> {
@@ -144,7 +210,7 @@ export class Auth {
     return rv;
   }
 
-  private async codeVerifierKey(state: string) {
+  private async codeVerifierKey(state: string): Promise<string> {
     const digest = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(state)
@@ -159,7 +225,7 @@ export class Auth {
     return "__nametag_code_verifier_" + digestBase64;
   }
 
-  private async exchangeCode(code: string): Promise<Token> {
+  async exchangeCode(code: string): Promise<Token> {
     const body = new FormData();
     body.set("grant_type", "authorization_code");
     body.set("client_id", this.client_id);
@@ -167,10 +233,11 @@ export class Auth {
     body.set("redirect_uri", this.redirect_uri);
 
     const codeVerifierKey = await this.codeVerifierKey(this.state);
-    const codeVerifier = this.storage.getItem(codeVerifierKey);
+    const codeVerifier = this.localStorage().getItem(codeVerifierKey);
     if (codeVerifier) {
       body.set("code_verifier", codeVerifier);
-      this.storage.removeItem(codeVerifierKey);
+    } else {
+      console.error("didn't find code verifier in local storage");
     }
 
     const resp = await fetch(this._server + "/token", {
@@ -179,9 +246,13 @@ export class Auth {
     });
     if (resp.status >= 400) {
       const err = resp.headers.get("X-Error-Message") || (await resp.text());
-      throw new Error("nametag: cannot exchange code for token: " + err);
+      throw new Error(
+        `(${this.state}): nametag: cannot exchange code for token: ` + err
+      );
     }
-    return (await resp.json()) as Token;
+
+    const token = (await resp.json()) as Token;
+    return token;
   }
 
   async HandleCallback(): Promise<HandleCallbackResult | null> {
@@ -197,29 +268,71 @@ export class Auth {
     const query = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const state = query.get("state");
     if (!state) {
+      console.log("nametag: HandleCallback: state not found in query");
       return {};
     }
     this.state = state;
 
     const error = query.get("error");
     if (error) {
+      console.error(`nametag: HandleCallback: error found in query: ${error}`);
       return { error: error };
     }
     const code = query.get("code");
     if (!code) {
+      console.error(`nametag: HandleCallback: code not found in query`);
       return {};
     }
 
     const token = await this.exchangeCode(code);
-    this.storage.setItem(this.tokenLocalStorageKey, JSON.stringify(token));
+    this.localStorage().setItem(
+      this.tokenLocalStorageKey,
+      JSON.stringify(token)
+    );
+    this.watches.map((w) => w.callback(token));
+
+    this.vaccumLocalStorage();
     return { token: token };
+  }
+
+  WatchToken(onToken: (token: Token | null) => void): TokenWatch {
+    if (!this.pkce) {
+      throw new Error("nametag: WatchToken should only be called in PKCE mode");
+    }
+    const self = this;
+    const eventHandler = (event: StorageEvent) => {
+      if (event.key == self.tokenLocalStorageKey) {
+        const t = self.Token();
+        onToken(t);
+      }
+    };
+    window.addEventListener("storage", eventHandler);
+
+    // Always fire an event that provides the initial value of the token
+    const initialToken = this.Token();
+    window.setTimeout(() => {
+      onToken(initialToken);
+    }, 0);
+
+    let rv: TokenWatchImpl = {
+      close: () => {},
+      callback: onToken,
+    };
+    rv.close = () => {
+      self.watches = self.watches.filter((f) => f != rv);
+      window.removeEventListener("storage", eventHandler);
+    };
+
+    this.watches.push(rv);
+    return rv;
   }
 
   SignOut() {
     if (!this.pkce) {
       throw new Error("nametag: SignOut should only be called in PKCE mode");
     }
-    this.storage.removeItem(this.tokenLocalStorageKey);
+    this.localStorage().removeItem(this.tokenLocalStorageKey);
+    this.watches.map((w) => w.callback(null));
   }
 
   SignedIn(): boolean {
@@ -233,7 +346,7 @@ export class Auth {
     if (!this.pkce) {
       throw new Error("nametag: Token should only be called in PKCE mode");
     }
-    const tokenStr = this.storage.getItem(this.tokenLocalStorageKey);
+    const tokenStr = this.localStorage().getItem(this.tokenLocalStorageKey);
     if (!tokenStr) {
       return null;
     }
@@ -320,4 +433,12 @@ class Properties {
 interface HandleCallbackResult {
   error?: string;
   token?: Token;
+}
+
+interface TokenWatchImpl extends TokenWatch {
+  callback(token: Token | null): void;
+}
+
+export interface TokenWatch {
+  close(): void;
 }

@@ -12,9 +12,9 @@
 }
 
 .nt-popup-bg {
-
     position: absolute;
     filter:   drop-shadow(0px 6px 24px rgba(0, 0, 0, 0.2));
+    will-change: filter;
     width: 176px;
     height: 287px;
 }

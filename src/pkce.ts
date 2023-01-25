@@ -13,6 +13,13 @@ export class PKCE {
   challenge: string = "";
   challengeMethod: "S256" | "plain" = "plain";
 
+  static async FromStored(verifier: string): Promise<PKCE> {
+    const rv = new PKCE();
+    rv.verifier = verifier;
+    await rv.setChallenge();
+    return rv;
+  }
+
   static async New(): Promise<PKCE> {
     const rv = new PKCE();
 
@@ -23,13 +30,17 @@ export class PKCE {
         Math.floor(Math.random() * alphabet.length)
       );
     }
+    await rv.setChallenge();
+    return rv;
+  }
 
-    rv.challengeMethod = "plain";
-    rv.challenge = rv.verifier;
+  async setChallenge() {
+    this.challengeMethod = "plain";
+    this.challenge = this.verifier;
     try {
       const digest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(rv.verifier)
+        new TextEncoder().encode(this.verifier)
       );
 
       const digestArr = Array.from(new Uint8Array(digest));
@@ -38,12 +49,10 @@ export class PKCE {
         .join("");
       const digestBase64 = btoa(digestStr);
 
-      rv.challenge = digestBase64;
-      rv.challengeMethod = "S256";
+      this.challenge = digestBase64;
+      this.challengeMethod = "S256";
     } catch (err) {
       // no change
     }
-
-    return rv;
   }
 }

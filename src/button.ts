@@ -23,7 +23,7 @@ export class MobileSigninButton {
   auth: Auth;
   container: HTMLElement;
   options: AuthorizeButtonOptions;
-  button: Button;
+  button: HTMLElement;
 
   constructor(
     auth: Auth,
@@ -34,36 +34,47 @@ export class MobileSigninButton {
     this.container = container;
     this.options = options;
 
-    this.button = new Button(
-      options.variant || "blue",
-      options.icon_position || "left"
-    );
-    this.addToDOM();
+    let customButton = hasCustomButton(container);
+    if (!customButton) {
+      const button = new Button(
+        options.variant || "blue",
+        options.icon_position || "left"
+      );
+      this.button = button.el;
+    } else {
+      this.button = container;
+    }
+
+    this.addStylesheetToDOM();
+
+    if (!customButton) {
+      this.addToDOM();
+    }
 
     this.initButtonMobile();
   }
 
   private async initButtonMobile() {
     const authorizeURL = await this.auth.AuthorizeURL();
-    this.button.el.addEventListener("click", () => {
+    this.button.addEventListener("click", () => {
       window.location.assign(authorizeURL);
     });
   }
 
-  addToDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-
-    // add our stylesheet to the DOM
+  addStylesheetToDOM() {
     if (!document.getElementById("nt-style")) {
       const style = document.createElement("style");
       style.id = "nt-style";
       style.innerText = styles;
       document.head.appendChild(style);
     }
+  }
 
-    this.container.appendChild(this.button.el);
+  addToDOM() {
+    while (this.container.firstChild) {
+      this.container.removeChild(this.container.firstChild);
+    }
+    this.container.appendChild(this.button);
   }
 
   removeFromDOM() {
@@ -99,7 +110,7 @@ export class DesktopSigninButton {
   auth: Auth;
   container: HTMLElement;
   options: AuthorizeButtonOptions;
-  button: Button;
+  button: HTMLElement;
   qr?: string;
   errorMessage?: string;
   popup?: Popup;
@@ -117,15 +128,26 @@ export class DesktopSigninButton {
     this.auth = auth;
     this.container = container;
     this.options = options;
-    this.button = new Button(
-      options.variant || "blue",
-      options.icon_position || "left"
-    );
-    this.button.el.addEventListener("click", this.togglePopup.bind(this));
 
+    var customButton = hasCustomButton(container);
+    if (customButton) {
+      this.button = container;
+    } else {
+      var button = new Button(
+        options.variant || "blue",
+        options.icon_position || "left"
+      );
+      this.button = button.el;
+    }
+
+    this.button.addEventListener("click", this.togglePopup.bind(this));
     window.addEventListener("message", this.onMessage.bind(this));
     this.initFrame();
-    this.addToDOM();
+
+    this.addStylesheetToDOM();
+    if (!customButton) {
+      this.addToDOM();
+    }
   }
 
   togglePopup() {
@@ -144,7 +166,7 @@ export class DesktopSigninButton {
 
   showPopup() {
     this.popup = new Popup();
-    this.popup.addElement(this.button.el);
+    this.popup.addElement(this.button);
     if (this.errorMessage) {
       this.popup.showError(this.errorMessage);
     }
@@ -161,6 +183,13 @@ export class DesktopSigninButton {
     if (this.iframe !== undefined) {
       this.container.removeChild(this.iframe);
       this.iframe = undefined;
+    }
+
+    if (!this.auth.IsCurrentOriginValid()) {
+      console.error(
+        `nametag[${this.auth.state}]: the origin of the redirect_uri must equal the current page's origin`
+      );
+      return;
     }
 
     const iframeURL = await this.auth.AuthorizeURL({ iframe: true });
@@ -185,7 +214,7 @@ export class DesktopSigninButton {
     }
 
     if (data.qr) {
-      console.log("nametag: received QR code");
+      console.log(`nametag[${this.auth.state}]: received QR code`);
       this.qr = data.qr;
       this.popup?.showQR(data.qr);
     }
@@ -196,7 +225,9 @@ export class DesktopSigninButton {
 
       case 400: // developer error
         console.error(
-          "nametag: developer error: " + data.error_message ?? "(unknown)"
+          `nametag[${this.auth.state}]: developer error: ${
+            data.error_message ?? "(unknown)"
+          }`
         );
 
         this.errorMessage = data.error_message ?? "Something went wrong";
@@ -204,17 +235,18 @@ export class DesktopSigninButton {
         return;
 
       case 403: // rejected
-        console.log("nametag: user rejected the request");
+        console.log(`nametag[${this.auth.state}]: user rejected the request`);
         this.errorMessage = "You choose not to accept the request";
         this.popup?.showError(this.errorMessage);
         return;
 
       case 200:
-        console.log("nametag: user accepted the request");
+        console.log(`nametag[${this.auth.state}]: user accepted the request`);
         this.hidePopup();
+
         if (!data.redirect_uri) {
           console.warn(
-            "nametag: internal error: expected redirect_uri when status is 200"
+            `nametag[${this.auth.state}]: internal error: expected redirect_uri when status is 200`
           );
         } else {
           window.location.assign(data.redirect_uri);
@@ -223,20 +255,20 @@ export class DesktopSigninButton {
     }
   }
 
-  addToDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-
-    // add our stylesheet to the DOM
+  addStylesheetToDOM() {
     if (!document.getElementById("nt-style")) {
       const style = document.createElement("style");
       style.id = "nt-style";
       style.innerText = styles;
       document.head.appendChild(style);
     }
+  }
 
-    this.container.appendChild(this.button.el);
+  addToDOM() {
+    while (this.container.firstChild) {
+      this.container.removeChild(this.container.firstChild);
+    }
+    this.container.appendChild(this.button);
   }
 
   removeFromDOM() {
@@ -469,4 +501,15 @@ class Popup {
                 19H${w / 2 + 14}L${w / 2}
                 1Z`;
   }
+}
+
+function hasCustomButton(container: HTMLElement): boolean {
+  let rv = false;
+  container.childNodes.forEach((node) => {
+    if (node.textContent?.match(/^\s*$/)) {
+      return; // doesn't count
+    }
+    rv = true;
+  });
+  return rv;
 }

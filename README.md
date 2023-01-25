@@ -11,7 +11,12 @@ This is the authorization client for browser-side OAuth 2.0 sign in with Nametag
 ```typescript
 import { Auth } from "@nametag/browser";
 
-var nametag = Auth({ ClientID: "YOUR_CLIENT_ID" });
+var nametag = Auth({ 
+    client_id: "YOUR_CLIENT_ID",
+    redirect_uri: window.location.origin + "/oauth/callback", 
+    scopes: ["nt:name", "nt:email"], // you must define these scopes for your app in the Nametag console.
+    state: window.location.pathname + window.location.search, // or whatever the next URL is
+});
 ```
 
 4. Check if the user is already authorized:
@@ -25,21 +30,12 @@ if (!auth.Token()) {
 5. When it's time to log in, add a handler
 
 ```typescript
-// click handler for the "Login with Nametag" button
-interface AuthorizeOptions {
-  qrcode: boolean
-}
-const opts AuthorizeOptions
-opts.qrcode = false
+// click handler for the "Sign in with ID" button
 const onLoginButtonClick = async () => {
-  const scopes = ["nt:name", "nt:email"]; // you must define these scopes for your app in the Nametag console.
-  const state = window.location.pathname + window.location.search; // or whatever the next URL is
-  const url = await nametag.AuthorizeURL(scopes, state, opts);
-  opts.qrcode = true
-  const qrcode = await nametag.AuthorizeURL(scopes, state, opts) 
+  const url = await nametag.AuthorizeURL();
   window.location.assign(url);
 };
-// add image button and qr code here
+// add button here
 ```
 
 6. On page load, handle the authentication callback:
@@ -51,11 +47,11 @@ const handleCallback = async () => {
     return;
   }
 
-  const state = await auth.HandleCallback();
-  window.location.assign(state);
-
-  const token = auth.Token();
-  console.log("signed in as " + token.subject);
+  const result = await nametag.HandleCallback();
+  if (result && result.token) {
+    console.log("signed in as " + token.subject);
+    window.location.assign(nametag.state);
+  }
 };
 document.addEventListener("load", handleCallback);
 ```
@@ -63,7 +59,7 @@ document.addEventListener("load", handleCallback);
 7. When the user is already authorized, fetch properties:
 
 ```typescript
-if (auth.SignedIn()) {
+if (nametag.SignedIn()) {
   const props = await auth.GetProperties(["nt:name", "nt:email"]);
   console.log("user id: " + props.subject);
   console.log("user name: " + props.get("nt:name"));
@@ -74,6 +70,6 @@ if (auth.SignedIn()) {
 
 ```typescript
 const onSignoutButtonClicked = () => {
-  auth.SignOut();
+  nametag.SignOut();
 };
 ```
