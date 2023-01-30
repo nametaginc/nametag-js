@@ -7,8 +7,11 @@
  */
 import { PKCE } from "./pkce";
 import { IStorage } from "./storage";
-import { DesktopSigninButton, isMobile, MobileSigninButton } from "./button";
+import { isMobile } from "./button";
 import { detect } from "detect-browser";
+import { DesktopSigninButton } from "./desktop-signin-button";
+import { MobileSigninButton } from "./mobile-signin-button";
+import { DesktopQRCode, DesktopQRCodeOptions } from "./desktop-qr-code";
 
 export interface Options {
   // client_id is the OAuth 2.0 client ID obtained from the Nametag Developer
@@ -25,7 +28,7 @@ export interface Options {
 
   // Arbitrary data that you define for your application. This value is passed to your CallbackURL upon completion of
   // the authorzation flow.
-  state: string;
+  state?: string;
 
   // Enable PKCE mode which is used for single page applications (default: true)
   pkce?: boolean;
@@ -69,7 +72,7 @@ export class Auth {
   private client_id: string;
   private redirect_uri: string;
   private scopes?: Array<string>;
-  state: string;
+  state?: string;
   private pkce: boolean;
   private localStorage: () => IStorage;
   public _server: string;
@@ -85,7 +88,6 @@ export class Auth {
       throw new Error(
         "nametag: sign in with ID buttons only work when page is https"
       );
-      return;
     }
 
     this.client_id = opts.client_id;
@@ -232,7 +234,7 @@ export class Auth {
     body.set("code", code);
     body.set("redirect_uri", this.redirect_uri);
 
-    const codeVerifierKey = await this.codeVerifierKey(this.state);
+    const codeVerifierKey = await this.codeVerifierKey(this.state!);
     const codeVerifier = this.localStorage().getItem(codeVerifierKey);
     if (codeVerifier) {
       body.set("code_verifier", codeVerifier);
@@ -386,6 +388,10 @@ export class Auth {
     } else {
       let _ = new DesktopSigninButton(this, element, options);
     }
+  }
+
+  QRCode(element: HTMLElement, options: DesktopQRCodeOptions) {
+    new DesktopQRCode(this, element, options);
   }
 }
 

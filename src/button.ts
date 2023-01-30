@@ -6,9 +6,8 @@
  * https://developers.google.com/open-source/licenses/bsd
  */
 
-import { Auth, AuthorizeButtonOptions } from "./index";
 import { detect } from "detect-browser";
-import { styles } from "./styles";
+import { captionSVGB64, logoSVGB64 } from "./svg";
 
 export function isMobile() {
   const browser = detect();
@@ -19,266 +18,7 @@ export function isMobile() {
   return browser.os === "iOS" || browser.os === "Android OS";
 }
 
-export class MobileSigninButton {
-  auth: Auth;
-  container: HTMLElement;
-  options: AuthorizeButtonOptions;
-  button: HTMLElement;
-
-  constructor(
-    auth: Auth,
-    container: HTMLElement,
-    options: AuthorizeButtonOptions
-  ) {
-    this.auth = auth;
-    this.container = container;
-    this.options = options;
-
-    let customButton = hasCustomButton(container);
-    if (!customButton) {
-      const button = new Button(
-        options.variant || "blue",
-        options.icon_position || "left"
-      );
-      this.button = button.el;
-    } else {
-      this.button = container;
-    }
-
-    this.addStylesheetToDOM();
-
-    if (!customButton) {
-      this.addToDOM();
-    }
-
-    this.initButtonMobile();
-  }
-
-  private async initButtonMobile() {
-    const authorizeURL = await this.auth.AuthorizeURL();
-    this.button.addEventListener("click", () => {
-      window.location.assign(authorizeURL);
-    });
-  }
-
-  addStylesheetToDOM() {
-    if (!document.getElementById("nt-style")) {
-      const style = document.createElement("style");
-      style.id = "nt-style";
-      style.innerText = styles;
-      document.head.appendChild(style);
-    }
-  }
-
-  addToDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-    this.container.appendChild(this.button);
-  }
-
-  removeFromDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-  }
-}
-
-//   Page loads:
-//     1. listen for messages from iframe
-//     2. create iframe, start polling
-//
-//  Frame loaded:
-//     3. receive QR code or initialization error
-//
-//  Button toggled on:
-//     4. show popup
-//
-//  Status 200 message received:
-//     - redirect
-//
-//  Status >= 400 message received:
-//     - popup in error state
-//
-//  Button toggled off:
-//     6. hide popup
-//     8. remove iframe from DOM
-//     9. re-create iframe
-//
-
-export class DesktopSigninButton {
-  auth: Auth;
-  container: HTMLElement;
-  options: AuthorizeButtonOptions;
-  button: HTMLElement;
-  qr?: string;
-  errorMessage?: string;
-  popup?: Popup;
-
-  // On desktop, we append an invisible iframe to the request which is handled by the server. This iframe is responsible
-  // for creating and polling the request. It uses the postMessage() browser API to send messages back to the parent
-  // frame which are processed by onMessage.
-  iframe?: HTMLIFrameElement;
-
-  constructor(
-    auth: Auth,
-    container: HTMLElement,
-    options: AuthorizeButtonOptions
-  ) {
-    this.auth = auth;
-    this.container = container;
-    this.options = options;
-
-    var customButton = hasCustomButton(container);
-    if (customButton) {
-      this.button = container;
-    } else {
-      var button = new Button(
-        options.variant || "blue",
-        options.icon_position || "left"
-      );
-      this.button = button.el;
-    }
-
-    this.button.addEventListener("click", this.togglePopup.bind(this));
-    window.addEventListener("message", this.onMessage.bind(this));
-    this.initFrame();
-
-    this.addStylesheetToDOM();
-    if (!customButton) {
-      this.addToDOM();
-    }
-  }
-
-  togglePopup() {
-    if (this.popup) {
-      this.hidePopup();
-    } else {
-      this.showPopup();
-    }
-  }
-
-  hidePopup() {
-    this.popup?.removeElement();
-    this.popup = undefined;
-    this.initFrame(); // reset the iframe
-  }
-
-  showPopup() {
-    this.popup = new Popup();
-    this.popup.addElement(this.button);
-    if (this.errorMessage) {
-      this.popup.showError(this.errorMessage);
-    }
-    if (this.qr) {
-      this.popup.showQR(this.qr);
-    }
-  }
-
-  private async initFrame() {
-    // reset state
-    this.qr = undefined;
-    this.errorMessage = undefined;
-
-    if (this.iframe !== undefined) {
-      this.container.removeChild(this.iframe);
-      this.iframe = undefined;
-    }
-
-    if (!this.auth.IsCurrentOriginValid()) {
-      console.error(
-        `nametag[${this.auth.state}]: the origin of the redirect_uri must equal the current page's origin`
-      );
-      return;
-    }
-
-    const iframeURL = await this.auth.AuthorizeURL({ iframe: true });
-    this.iframe = document.createElement("iframe");
-    this.iframe.style.display = "none";
-    this.iframe.src = iframeURL;
-    this.container.appendChild(this.iframe);
-  }
-
-  // called when we receive a message from the iframe
-  private onMessage(evt: MessageEvent<IframeEventData>) {
-    if (evt.origin !== this.auth._server) {
-      return;
-    }
-    if (evt.source !== this.iframe?.contentWindow) {
-      return;
-    }
-
-    const data = evt.data;
-    if (data.state != this.auth.state) {
-      return;
-    }
-
-    if (data.qr) {
-      console.log(`nametag[${this.auth.state}]: received QR code`);
-      this.qr = data.qr;
-      this.popup?.showQR(data.qr);
-    }
-
-    switch (data.status) {
-      case 100:
-        return; // keep waiting
-
-      case 400: // developer error
-        console.error(
-          `nametag[${this.auth.state}]: developer error: ${
-            data.error_message ?? "(unknown)"
-          }`
-        );
-
-        this.errorMessage = data.error_message ?? "Something went wrong";
-        this.popup?.showError(this.errorMessage);
-        return;
-
-      case 403: // rejected
-        console.log(`nametag[${this.auth.state}]: user rejected the request`);
-        this.errorMessage = "You choose not to accept the request";
-        this.popup?.showError(this.errorMessage);
-        return;
-
-      case 200:
-        console.log(`nametag[${this.auth.state}]: user accepted the request`);
-        this.hidePopup();
-
-        if (!data.redirect_uri) {
-          console.warn(
-            `nametag[${this.auth.state}]: internal error: expected redirect_uri when status is 200`
-          );
-        } else {
-          window.location.assign(data.redirect_uri);
-        }
-        return;
-    }
-  }
-
-  addStylesheetToDOM() {
-    if (!document.getElementById("nt-style")) {
-      const style = document.createElement("style");
-      style.id = "nt-style";
-      style.innerText = styles;
-      document.head.appendChild(style);
-    }
-  }
-
-  addToDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-    this.container.appendChild(this.button);
-  }
-
-  removeFromDOM() {
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-  }
-}
-
-interface IframeEventData {
+export interface IframeEventData {
   state: string;
   qr?: string;
   status: 100 | 200 | 400 | 403;
@@ -286,7 +26,11 @@ interface IframeEventData {
   error_message?: string;
 }
 
-class Button {
+export function getSrcString(svg: string) {
+  return `data:image/svg+xml;base64,${svg}`;
+}
+
+export class Button {
   el: HTMLDivElement;
   imageLeft: HTMLImageElement;
   text: HTMLSpanElement;
@@ -301,8 +45,10 @@ class Button {
 
     this.imageLeft = document.createElement("img");
     this.imageLeft.classList.add("nt", "nt-btn-signin-icon");
-    this.imageLeft.src =
-      "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkiIGhlaWdodD0iMTgiIHZpZXdCb3g9IjAgMCAxOSAxOCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSByPSI5IiB0cmFuc2Zvcm09Im1hdHJpeCgxIC0zLjAyMTFlLTEwIC0wLjAwODIwMzAzIDAuOTk5OTY2IDkuMDczODggOC45OTk3KSIgZmlsbD0iIzAwRkZBQSIvPgo8Y2lyY2xlIHI9IjYuMyIgdHJhbnNmb3JtPSJtYXRyaXgoMSAtMy4wMjExZS0xMCAtMC4wMDgyMDMwMyAwLjk5OTk2NiA5LjA3MzI3IDguOTk3NzkpIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMTIuODEzNiA2Ljk0MjAyQzEzLjA2NzcgNi42NDcxIDEzLjAzNjMgNi4yMDM5OSAxMi43NDM1IDUuOTUyMzFDMTIuNDUwNiA1LjcwMDYzIDEyLjAwNzIgNS43MzU2OSAxMS43NTMxIDYuMDMwNjJMNy45MzkyMyAxMC40NTcxTDYuNDAwNzkgOC44MDY0OEM2LjEzNzUyIDguNTI0MDEgNS42OTMzMyA4LjUxMDMyIDUuNDA4NjcgOC43NzU5MUM1LjEyNDAyIDkuMDQxNDkgNS4xMDY2OCA5LjQ4NTc3IDUuMzY5OTYgOS43NjgyNEw3LjQ0MDUxIDExLjk4OThDNy41NzYwMyAxMi4xMzUyIDcuNzY3NTEgMTIuMjE1NSA3Ljk2NzA3IDEyLjIxMDdDOC4xNjY2MyAxMi4yMDU5IDguMzU1NDIgMTIuMTE2NCA4LjQ4NjIyIDExLjk2NDZMMTIuODEzNiA2Ljk0MjAyWiIgZmlsbD0iIzEyM0FCMiIgc3Ryb2tlPSIjMTIzQUIyIiBzdHJva2Utd2lkdGg9IjAuMjc5MDg2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cg==";
+    if (variant !== "white") {
+      this.imageLeft.classList.add("nt-btn-inverted");
+    }
+    this.imageLeft.src = getSrcString(logoSVGB64);
     this.el.appendChild(this.imageLeft);
 
     this.text = document.createElement("span");
@@ -337,7 +83,7 @@ class Button {
   }
 }
 
-class Popup {
+export class Popup {
   el: HTMLDivElement;
   background: SVGElement;
   backgroundPath: SVGPathElement;
@@ -391,8 +137,7 @@ class Popup {
 
     this.captionImage = document.createElement("img");
     this.captionImage.classList.add("nt", "nt-popup-caption-image");
-    this.captionImage.src =
-      "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTQiIGhlaWdodD0iMjEiIHZpZXdCb3g9IjAgMCAxNCAyMSIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTcgMTcuODg4OUg3LjAxTTMgMjBIMTFDMTEuNTMwNCAyMCAxMi4wMzkxIDE5Ljc3NzYgMTIuNDE0MiAxOS4zODE3QzEyLjc4OTMgMTguOTg1OCAxMyAxOC40NDg4IDEzIDE3Ljg4ODlWMy4xMTExMUMxMyAyLjU1MTIxIDEyLjc4OTMgMi4wMTQyNCAxMi40MTQyIDEuNjE4MzNDMTIuMDM5MSAxLjIyMjQyIDExLjUzMDQgMSAxMSAxSDNDMi40Njk1NyAxIDEuOTYwODYgMS4yMjI0MiAxLjU4NTc5IDEuNjE4MzNDMS4yMTA3MSAyLjAxNDI0IDEgMi41NTEyMSAxIDMuMTExMTFWMTcuODg4OUMxIDE4LjQ0ODggMS4yMTA3MSAxOC45ODU4IDEuNTg1NzkgMTkuMzgxN0MxLjk2MDg2IDE5Ljc3NzYgMi40Njk1NyAyMCAzIDIwWiIgc3Ryb2tlPSIjNjY2NjY2IiBzdHJva2Utd2lkdGg9IjEuMjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K";
+    this.captionImage.src = getSrcString(captionSVGB64);
     this.caption.appendChild(this.captionImage);
 
     this.captionText = document.createElement("div");
@@ -404,8 +149,7 @@ class Popup {
     this.content.appendChild(this.footer);
 
     this.footerImage = document.createElement("img");
-    this.footerImage.src =
-      "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkiIGhlaWdodD0iMTgiIHZpZXdCb3g9IjAgMCAxOSAxOCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSByPSI5IiB0cmFuc2Zvcm09Im1hdHJpeCgxIC0zLjAyMTFlLTEwIC0wLjAwODIwMzAzIDAuOTk5OTY2IDkuMDczODggOC45OTk3KSIgZmlsbD0iIzAwRkZBQSIvPgo8Y2lyY2xlIHI9IjYuMyIgdHJhbnNmb3JtPSJtYXRyaXgoMSAtMy4wMjExZS0xMCAtMC4wMDgyMDMwMyAwLjk5OTk2NiA5LjA3MzI3IDguOTk3NzkpIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNMTIuODEzNiA2Ljk0MjAyQzEzLjA2NzcgNi42NDcxIDEzLjAzNjMgNi4yMDM5OSAxMi43NDM1IDUuOTUyMzFDMTIuNDUwNiA1LjcwMDYzIDEyLjAwNzIgNS43MzU2OSAxMS43NTMxIDYuMDMwNjJMNy45MzkyMyAxMC40NTcxTDYuNDAwNzkgOC44MDY0OEM2LjEzNzUyIDguNTI0MDEgNS42OTMzMyA4LjUxMDMyIDUuNDA4NjcgOC43NzU5MUM1LjEyNDAyIDkuMDQxNDkgNS4xMDY2OCA5LjQ4NTc3IDUuMzY5OTYgOS43NjgyNEw3LjQ0MDUxIDExLjk4OThDNy41NzYwMyAxMi4xMzUyIDcuNzY3NTEgMTIuMjE1NSA3Ljk2NzA3IDEyLjIxMDdDOC4xNjY2MyAxMi4yMDU5IDguMzU1NDIgMTIuMTE2NCA4LjQ4NjIyIDExLjk2NDZMMTIuODEzNiA2Ljk0MjAyWiIgZmlsbD0iIzEyM0FCMiIgc3Ryb2tlPSIjMTIzQUIyIiBzdHJva2Utd2lkdGg9IjAuMjc5MDg2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cg==";
+    this.footerImage.src = getSrcString(logoSVGB64);
     this.footer.appendChild(this.footerImage);
 
     this.footerText = document.createElement("div");
@@ -503,7 +247,7 @@ class Popup {
   }
 }
 
-function hasCustomButton(container: HTMLElement): boolean {
+export function hasCustomButton(container: HTMLElement): boolean {
   let rv = false;
   container.childNodes.forEach((node) => {
     if (node.textContent?.match(/^\s*$/)) {

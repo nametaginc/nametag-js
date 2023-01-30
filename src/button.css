@@ -41,6 +41,7 @@
 .nt-btn-signin-blue {
     background: #3C91F7;
 }
+
 .nt-btn-signin-blue .nt-btn-signin-text {
     color: #FFFFFF;
 }
@@ -54,10 +55,10 @@
 }
 
 .nt-btn-signin-white {
-     background: #FFFFFF;
+    background: #FFFFFF;
     border: 1px solid #D9D9D9;
     box-sizing: border-box;
- }
+}
 
 .nt-btn-signin-white .nt-btn-signin-text {
     color: #000000;
@@ -67,5 +68,67 @@
     flex: 1;
 }
 
-.nt-btn-signin-icon-center {
+.nt-btn-signin-icon-center {}
+
+.nt-btn-inverted {
+    filter: invert();
+}
+
+.nt-qr-code {
+    max-width: 320px;
+}
+
+.nt-qr-code-container {
+    background-color: white;
+    border-radius: 8px;
+    padding-top: 100%;
+    position: relative;
+}
+
+.nt-qr-code-container-item {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.nt-qr-code-qr {
+    padding: 32px;
+    width: 100%;
+}
+
+.nt-qr-code-error {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+}
+
+.nt-qr-code-caption {
+    align-items: center;
+    background-color: transparent;
+    display: flex;
+    margin-top: 20px;
+    justify-content: center;
+}
+
+.nt-qr-code-caption-icon-dark {}
+
+.nt-qr-code-caption-icon-light {
+    filter: invert();
+}
+
+.nt-qr-code-caption-text {
+    font-size: 14px;
+    line-height: 17px;
+    margin-left: 8px;
+    margin: 0 8px;
+}
+
+.nt-qr-code-caption-text-dark {
+    color: #000000;
+}
+
+.nt-qr-code-caption-text-light {
+    color: #FFFFFF;
 }
